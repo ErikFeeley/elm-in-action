@@ -1,11 +1,11 @@
-module PhotoGroove exposing (..)
+port module PhotoGroove exposing (..)
 
 import Array exposing (Array)
 import Html exposing (..)
-import Html.Attributes exposing (class, classList, id, name, src, title, type_)
-import Html.Events exposing (onClick)
+import Html.Attributes as Attr exposing (class, classList, id, max, name, src, title, type_)
+import Html.Events exposing (on, onClick)
 import Http
-import Json.Decode exposing (Decoder, int, list, string)
+import Json.Decode exposing (Decoder, at, int, list, string)
 import Json.Decode.Pipeline exposing (decode, optional, required)
 import Random
 
@@ -36,11 +36,26 @@ view model =
         , button
             [ onClick SurpriseMe ]
             [ text "Surprise Me!" ]
+        , div [ class "status" ] [ text model.status ]
+        , div [ class "filters" ]
+            [ viewFilter "Hue" SetHue model.hue
+            , viewFilter "Ripple" SetRipple model.ripple
+            , viewFilter "Noise" SetNoise model.noise
+            ]
         , h3 [] [ text "Thumbnail Size:" ]
         , div [ id "choose-size" ] (List.map viewSizeChooser [ Small, Medium, Large ])
         , div [ id "thumbnails", class (sizeToString model.chosenSize) ]
             (List.map (viewThumbnail model.selectedUrl) model.photos)
         , viewLarge model.selectedUrl
+        ]
+
+
+viewFilter : String -> (Int -> Msg) -> Int -> Html Msg
+viewFilter name toMsg magnitude =
+    div [ class "filter-slider" ]
+        [ label [] [ text name ]
+        , paperSlider [ Attr.max "11", onImmediateValueChange toMsg ] []
+        , label [] [ text (toString magnitude) ]
         ]
 
 
@@ -51,7 +66,7 @@ viewLarge maybeUrl =
             text ""
 
         Just url ->
-            img [ class "large", src (urlPrefix ++ "large/" ++ url) ] []
+            canvas [ id "main-canvas", class "large" ] []
 
 
 viewThumbnail : Maybe String -> Photo -> Html Msg
@@ -86,6 +101,18 @@ sizeToString size =
             "large"
 
 
+port setFilters : FilterOptions -> Cmd msg
+
+
+port statusChanges : (String -> msg) -> Sub msg
+
+
+type alias FilterOptions =
+    { url : String
+    , filters : List { name : String, amount : Float }
+    }
+
+
 type alias Photo =
     { url : String
     , size : Int
@@ -95,34 +122,46 @@ type alias Photo =
 
 type alias Model =
     { photos : List Photo
+    , status : String
     , selectedUrl : Maybe String
     , loadingError : Maybe String
     , chosenSize : ThumbnailSize
+    , hue : Int
+    , ripple : Int
+    , noise : Int
     }
 
 
 initialModel : Model
 initialModel =
     { photos = []
+    , status = ""
     , selectedUrl = Nothing
     , loadingError = Nothing
     , chosenSize = Medium
+    , hue = 0
+    , ripple = 0
+    , noise = 0
     }
 
 
 type Msg
     = SelectByUrl String
     | SelectByIndex Int
+    | SetStatus String
     | SurpriseMe
     | SetSize ThumbnailSize
     | LoadPhotos (Result Http.Error (List Photo))
+    | SetHue Int
+    | SetRipple Int
+    | SetNoise Int
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        SelectByUrl url ->
-            ( { model | selectedUrl = Just url }, Cmd.none )
+        SelectByUrl selectedUrl ->
+            applyFilters { model | selectedUrl = Just selectedUrl }
 
         SelectByIndex index ->
             let
@@ -133,7 +172,10 @@ update msg model =
                         |> Array.get index
                         |> Maybe.map .url
             in
-            ( { model | selectedUrl = newSelectedUrl }, Cmd.none )
+            applyFilters { model | selectedUrl = newSelectedUrl }
+
+        SetStatus status ->
+            ( { model | status = status }, Cmd.none )
 
         SurpriseMe ->
             let
@@ -146,10 +188,39 @@ update msg model =
             ( { model | chosenSize = size }, Cmd.none )
 
         LoadPhotos (Ok photos) ->
-            ( { model | photos = photos, selectedUrl = Maybe.map .url (List.head photos) }, Cmd.none )
+            applyFilters { model | photos = photos, selectedUrl = Maybe.map .url (List.head photos) }
 
         LoadPhotos (Err _) ->
             ( { model | loadingError = Just "Error! (try turning it off and on again)" }, Cmd.none )
+
+        SetHue hue ->
+            applyFilters { model | hue = hue }
+
+        SetRipple ripple ->
+            applyFilters { model | ripple = ripple }
+
+        SetNoise noise ->
+            applyFilters { model | noise = noise }
+
+
+applyFilters : Model -> ( Model, Cmd Msg )
+applyFilters model =
+    case model.selectedUrl of
+        Just selectedUrl ->
+            let
+                filters =
+                    [ { name = "Hue", amount = toFloat model.hue / 11 }
+                    , { name = "Ripple", amount = toFloat model.ripple / 11 }
+                    , { name = "Noise", amount = toFloat model.noise / 11 }
+                    ]
+
+                url =
+                    urlPrefix ++ "large/" ++ selectedUrl
+            in
+            ( model, setFilters { url = url, filters = filters } )
+
+        Nothing ->
+            ( model, Cmd.none )
 
 
 initialCmd : Cmd Msg
@@ -172,11 +243,32 @@ viewOrError model =
                 ]
 
 
-main : Program Never Model Msg
+main : Program Float Model Msg
 main =
-    Html.program
-        { init = ( initialModel, initialCmd )
+    Html.programWithFlags
+        { init = init
         , view = viewOrError
         , update = update
-        , subscriptions = always Sub.none -- or \_ -> Sub.none
+        , subscriptions = \_ -> statusChanges SetStatus -- when not using: always Sub.none or \_ -> Sub.none
         }
+
+
+init : Float -> ( Model, Cmd Msg )
+init flags =
+    let
+        status =
+            "Initializing Pasta v" ++ toString flags
+    in
+    ( { initialModel | status = status }, initialCmd )
+
+
+paperSlider : List (Attribute msg) -> List (Html msg) -> Html msg
+paperSlider =
+    node "paper-slider"
+
+
+onImmediateValueChange : (Int -> msg) -> Attribute msg
+onImmediateValueChange toMsg =
+    at [ "target", "immediateValue" ] int
+        |> Json.Decode.map toMsg
+        |> on "immediate-value-changed"
