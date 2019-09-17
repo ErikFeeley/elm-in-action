@@ -36,19 +36,20 @@
         <div id="app"></div>
 
         <script src="http://elm-in-action.com/pasta.js"></script>
-        <script src="elm.js"></script>
-    <script>
-        var app = Elm.PhotoGroove.init({node: document.getElementById("app"), flags: Pasta.version});
+        <script src="/elm.js"></script>
+        <script>
+            var app = Elm.Main.init({node: document.getElementById("app"), flags: Pasta.version});
+            //var app = Elm.PhotoGroove.init({node: document.getElementById("app"), flags: Pasta.version});
 
-        app.ports.setFilters.subscribe(function(options) {
-            requestAnimationFrame(function() {
-                Pasta.apply(document.getElementById("main-canvas"), options);
-            }); 
-        });
+            //app.ports.setFilters.subscribe(function(options) {
+             //   requestAnimationFrame(function() {
+              //      Pasta.apply(document.getElementById("main-canvas"), options);
+               // }); 
+            //});
 
-        Pasta.addActivityListener(function(activity){
-            app.ports.activityChanges.send(activity);
-        });
-    </script>
+            //Pasta.addActivityListener(function(activity){
+             //   app.ports.activityChanges.send(activity);
+            //});
+        </script>
     </body>
 </html>
